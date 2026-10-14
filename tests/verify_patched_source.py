@@ -139,7 +139,7 @@ def main() -> int:
     require(managed, "$document[0].hidden", "后台页面不显示网络误报")
     require(managed, "tunnelVisibilityChanged", "页面恢复后重新确认异常")
     require(managed, "endUnstableWarning", "恢复或断线时清理提示状态")
-    require(managed, "reconnectSuggested", "持续异常后保留重连建议")
+    require(managed, "if (!managedClient.controlUnresponsive)\n                            managedClient.reconnectSuggested = false;", "网络恢复清理提示且保留真实控制故障")
     require(managed, "hasActiveTransfers", "自动整页刷新保护进行中的文件传输")
     require(managed, "ManagedFileTransferState.StreamState.OPEN", "识别活动文件流")
     require(managed, "CONTROL_RESPONSE_TIMEOUT = 8000", "控制响应超时窗口")
@@ -226,14 +226,19 @@ def main() -> int:
     require(preferences, "typeof state.attempts !== 'number'", "拒绝损坏的跨刷新计数")
     require(settings_template, "preferences.automaticRefresh", "用户设置页自动刷新开关")
 
-    # Terminal error dialog follows the same preference and keeps manual refresh.
-    require(client_notification, "preferenceService.preferences.automaticRefresh", "错误窗口遵循自动刷新设置")
-    require(client_notification, "preferenceService.canAutomaticallyRefresh()", "错误窗口遵循刷新次数上限")
-    require(client_notification, "preferenceService.refreshPage(false)", "错误倒计时整页刷新")
+    # Terminal errors reconnect the affected client; full-page refresh is manual.
+    require(client_notification, "guacClientManager.replaceManagedClient($scope.client.id)", "错误窗口仅重建当前连接")
+    require(client_notification, "RECONNECT_ACTION, REFRESH_PAGE_ACTION", "优先重连并保留整页刷新备用入口")
+    require(client_notification, "notificationGeneration", "延迟通知的状态代次")
+    require(client_notification, "isCurrentNotification(notification)", "忽略过期翻译和认证回调")
+    require(client_notification, "$scope.client === notification.client", "隔离旧连接回调")
+    require(client_notification, "notification.statusCode", "防止旧错误覆盖新错误")
+    require(client_notification, "notificationDestroyed", "销毁视图时取消旧通知")
+    forbid(client_notification, "preferenceService.refreshPage(false)", "中央窗口不得重复安排自动整页刷新")
+    forbid(client_notification, "REFRESH_PAGE_COUNTDOWN", "移除独立的整页刷新倒计时")
     require(client_notification, "preferenceService.refreshPage(true)", "错误窗口手动整页刷新")
     require(client_notification, "CLIENT.ACTION_REFRESH_PAGE", "错误窗口刷新操作")
     require(client_notification, "actions : [ REFRESH_PAGE_ACTION ]", "等待首帧时提供刷新操作")
-    forbid(client_notification, "guacClientManager.replaceManagedClient", "错误窗口不得只替换连接")
 
     require(en, '"ACTION_REFRESH_PAGE"', "英文整页刷新操作")
     require(zh, '"ACTION_REFRESH_PAGE"', "中文整页刷新操作")

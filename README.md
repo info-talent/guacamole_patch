@@ -8,10 +8,12 @@ This repository is not an official Apache Software Foundation release.
 
 ## Quick deployment
 
-Pull the published image:
+The current source is an unreleased `recovery7` candidate. Publish the image through the build workflow before using the tags below. Published `recovery6` images do not include these dialog fixes.
+
+After publishing, pull the candidate image:
 
 ```bash
-docker pull ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6
+docker pull ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7
 ```
 
 Use it in Docker Compose:
@@ -19,7 +21,7 @@ Use it in Docker Compose:
 ```yaml
 services:
   guacamole:
-    image: ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6
+    image: ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7
 ```
 
 Update only the Guacamole web container:
@@ -33,10 +35,10 @@ docker compose logs --tail=100 guacamole
 
 Docker reuses unchanged layers, so later pulls normally download only changed layers. Do not run `docker compose down -v` or delete database volumes.
 
-## Published image tags
+## Image tags
 
-- `1.6.0-recovery6`: current named recovery release documented by this package.
-- `1.6.0-recovery5`: previous recovery release retained for rollback.
+- `1.6.0-recovery7`: unreleased candidate documented by this source checkout.
+- `1.6.0-recovery6`: previous recovery release retained for rollback.
 - `1.6.0`: current moving release image; this tag is updated on each release build.
 - `main`: latest image built from the `main` branch.
 - `sha-<commit>`: immutable tag for a specific source commit.
@@ -71,6 +73,10 @@ Manual recovery remains available through `Ctrl+Alt+K` and the **Recover keyboar
 
 ### Transient network warning
 
+Terminal error dialogs offer **Reconnect** for the affected client first, with **Refresh page** retained as an explicit fallback. Deferred error translations and authentication checks verify the client, state, and view lifetime before displaying a dialog, so recovered connections are not blocked by stale errors. The dialog no longer owns a separate full-page refresh countdown; connection recovery coordinates automatic page refreshes. Reconnecting a balancing group may select a different backend; use a specific connection when the same host must be preserved.
+
+When the tunnel recovers, its stale recovery suggestion and pending automatic refresh are cleared. Separately detected control stalls remain visible. Persistent disconnects still require matching Guacamole, `guacd`, and proxy logs to identify the underlying cause.
+
 Guacamole normally marks a tunnel unstable after roughly 1.5 seconds without inbound data. The patch waits for three additional seconds of continuous, visible-page instability before showing the warning. It suppresses the warning while the page is hidden and starts a fresh grace period when the page returns.
 
 The underlying instability detector and 15-second receive timeout are unchanged. Sustained network or server failures are still reported and disconnected normally.
@@ -97,11 +103,16 @@ Chrome, Edge, video, animation, and complex page scrolling inside remote Windows
 
 Recovery6 retains recovery4's display hot-path optimization: the live sync callback no longer flattens the full display every five seconds for thumbnails, and per-frame statistics are disabled by default and enabled with a one-second window only after intentional clicks. Thumbnails are still saved after the first connected frame and on disconnect.
 
-- `16`-bit color depth;
+- matching web application and `guacd` versions; the web patch does not upgrade `guacd`;
+- GFX enabled by default (**Disable GFX** unchecked), with color depth initially unset; Guacamole 1.6.0 requires 32-bit depth for GFX and ignores a requested `16`, so lower color depth is not a universal optimization;
 - force-lossless disabled;
 - wallpaper, theming, font smoothing, full-window drag, desktop composition, and menu animations disabled;
 - bitmap, offscreen, and glyph caching enabled by leaving their "disable" options unchecked;
 - `1280x720` or `1600x900` with `96` DPI during initial troubleshooting.
+
+If mstsc is smooth but Guacamole stalls when opening or scrolling a browser, check gateway graphics conversion, transport, and local browser rendering first. Confirm that `websocket-tunnel` successfully upgrades to WebSocket (typically HTTP `101`); if it falls back to the HTTP tunnel, check that the reverse proxy disables response buffering. During a stall, compare `docker stats` CPU, memory, and network traffic with local browser CPU, then compare lower resolution and access without the proxy on the same network. The paths and RDP negotiation differ, so smooth mstsc alone does not rule out network issues between the Guacamole server and Windows.
+
+Configuration references: [RDP performance flags](https://guacamole.apache.org/doc/1.6.0/gug/configuring-guacamole.html#performance-flags), [reverse proxy and WebSocket](https://guacamole.apache.org/doc/1.6.0/gug/reverse-proxy.html), and [GFX color-depth handling](https://github.com/apache/guacamole-server/blob/1.6.0/src/protocols/rdp/settings.c#L1541).
 
 ## GitHub Actions build
 
@@ -110,10 +121,10 @@ Open **Actions → Build and publish Guacamole recovery image → Run workflow**
 A successful build publishes:
 
 ```text
-ghcr.io/trilogys/guacamole_patch:1.6.0
-ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6
-ghcr.io/trilogys/guacamole_patch:main
-ghcr.io/trilogys/guacamole_patch:sha-<commit>
+ghcr.io/info-talent/guacamole_patch:1.6.0
+ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7
+ghcr.io/info-talent/guacamole_patch:main
+ghcr.io/info-talent/guacamole_patch:sha-<commit>
 ```
 
 ## Manual build
@@ -133,10 +144,10 @@ mktemp
 Clone and build:
 
 ```bash
-git clone https://github.com/trilogys/guacamole_patch.git
+git clone https://github.com/info-talent/guacamole_patch.git
 cd guacamole_patch
 
-IMAGE_NAME="ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6" \
+IMAGE_NAME="ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7" \
 bash ./build.sh
 ```
 
@@ -144,7 +155,7 @@ For a faster troubleshooting build:
 
 ```bash
 MAVEN_ARGUMENTS="-T 1C -Dmaven.test.skip=true" \
-IMAGE_NAME="ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6" \
+IMAGE_NAME="ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7" \
 bash ./build.sh
 ```
 
@@ -153,14 +164,14 @@ bash ./build.sh
 ## Verify the image
 
 ```bash
-docker image inspect ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6 \
+docker image inspect ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7 \
   --format '{{index .Config.Labels "io.guacamole.recovery.patch-sha256"}}'
 ```
 
 Expected patch SHA-256:
 
 ```text
-0345d83616eefb0c23c6c8aad328739260beeb2bf0f0d645fc436d4f87f4de5f
+be142a5ede943175bfe87a23444b74ebb60969b7e388e5614e8112ea26ec5df1
 ```
 
 ## Acceptance testing

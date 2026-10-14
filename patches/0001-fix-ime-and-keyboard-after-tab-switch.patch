@@ -433,94 +433,151 @@ diff --git a/guacamole/src/main/frontend/src/app/client/directives/guacClient.js
 diff --git a/guacamole/src/main/frontend/src/app/client/directives/guacClientNotification.js b/guacamole/src/main/frontend/src/app/client/directives/guacClientNotification.js
 --- a/guacamole/src/main/frontend/src/app/client/directives/guacClientNotification.js
 +++ b/guacamole/src/main/frontend/src/app/client/directives/guacClientNotification.js
-@@ -52,8 +52,8 @@ angular.module('client').directive('guacClientNotification', [function guacClien
-         // Required services
-         const $location              = $injector.get('$location');
+@@ -54,6 +54,7 @@
          const authenticationService  = $injector.get('authenticationService');
--        const guacClientManager      = $injector.get('guacClientManager');
+         const guacClientManager      = $injector.get('guacClientManager');
          const guacTranslate          = $injector.get('guacTranslate');
 +        const preferenceService      = $injector.get('preferenceService');
          const requestService         = $injector.get('requestService');
          const userPageService        = $injector.get('userPageService');
  
-@@ -67,10 +67,10 @@ angular.module('client').directive('guacClientNotification', [function guacClien
+@@ -66,32 +67,20 @@
+          */
          $scope.status = false;
  
-         /**
+-        /**
 -         * All error codes for which automatic reconnection is appropriate when a
 -         * client error occurs.
-+         * All error codes for which automatic page refresh is appropriate when
-+         * a client error occurs.
-          */
+-         */
 -        const CLIENT_AUTO_RECONNECT = {
-+        const CLIENT_AUTO_REFRESH = {
-             0x0200: true,
-             0x0202: true,
-             0x0203: true,
-@@ -81,10 +81,10 @@ angular.module('client').directive('guacClientNotification', [function guacClien
-         };
- 
-         /**
+-            0x0200: true,
+-            0x0202: true,
+-            0x0203: true,
+-            0x0207: true,
+-            0x0208: true,
+-            0x0301: true,
+-            0x0308: true
+-        };
+-
+-        /**
 -         * All error codes for which automatic reconnection is appropriate when a
 -         * tunnel error occurs.
-+         * All error codes for which automatic page refresh is appropriate when
-+         * a tunnel error occurs.
-          */
+-         */
 -        const TUNNEL_AUTO_RECONNECT = {
-+        const TUNNEL_AUTO_REFRESH = {
-             0x0200: true,
-             0x0202: true,
-             0x0203: true,
-@@ -129,24 +129,25 @@ angular.module('client').directive('guacClientNotification', [function guacClien
+-            0x0200: true,
+-            0x0202: true,
+-            0x0203: true,
+-            0x0207: true,
+-            0x0208: true,
+-            0x0308: true
+-        };
++        // Downstream modification: invalidate deferred notifications whenever
++        // the connection, parameter prompt, or view lifetime changes.
++        let notificationGeneration = 0;
++
++        const isCurrentNotification = function isCurrentNotification(notification) {
++            return notification.generation === notificationGeneration
++                && $scope.client === notification.client
++                && $scope.client.clientState.connectionState === notification.connectionState
++                && $scope.client.clientState.statusCode === notification.statusCode;
++        };
++
++        $scope.$on('$destroy', function notificationDestroyed() {
++            notificationGeneration++;
++        });
+ 
+         /**
+          * Action which logs out from Guacamole entirely.
+@@ -129,25 +118,27 @@
          }, requestService.WARN);
  
          /**
 -         * Action which replaces the current client with a newly-connected client.
-+         * Action which refreshes the entire current browser page.
++         * Reconnects only the affected client, preserving the surrounding page.
           */
--        const RECONNECT_ACTION = {
--            name      : "CLIENT.ACTION_RECONNECT",
-+        const REFRESH_PAGE_ACTION = {
-+            name      : "CLIENT.ACTION_REFRESH_PAGE",
+         const RECONNECT_ACTION = {
+             name      : "CLIENT.ACTION_RECONNECT",
              className : "reconnect button",
--            callback  : function reconnectCallback() {
--                $scope.client = guacClientManager.replaceManagedClient($scope.client.id);
--                $scope.status = false;
-+            callback  : function refreshPageCallback() {
-+                preferenceService.refreshPage(true);
+             callback  : function reconnectCallback() {
++                notificationGeneration++;
+                 $scope.client = guacClientManager.replaceManagedClient($scope.client.id);
+                 $scope.status = false;
              }
          };
  
          /**
 -         * The reconnect countdown to display if an error or status warrants an
 -         * automatic, timed reconnect.
-+         * The refresh countdown to display if an error or status warrants an
-+         * automatic, timed full-page refresh.
-          */
+-         */
 -        const RECONNECT_COUNTDOWN = {
 -            text: "CLIENT.TEXT_RECONNECT_COUNTDOWN",
 -            callback: RECONNECT_ACTION.callback,
-+        const REFRESH_PAGE_COUNTDOWN = {
-+            text: "CLIENT.TEXT_REFRESH_PAGE_COUNTDOWN",
-+            callback: function automaticRefreshPage() {
-+                preferenceService.refreshPage(false);
-+            },
-             remaining: 15
+-            remaining: 15
++         * Explicit fallback for a black display or stale frontend files.
++         */
++        const REFRESH_PAGE_ACTION = {
++            name      : "CLIENT.ACTION_REFRESH_PAGE",
++            className : "reconnect button",
++            callback  : function refreshPageCallback() {
++                preferenceService.refreshPage(true);
++            }
          };
  
-@@ -194,9 +195,9 @@ angular.module('client').directive('guacClientNotification', [function guacClien
+         /**
+@@ -162,7 +153,10 @@
+          *     The status notification to show, as would be accepted by
+          *     guacNotification.showStatus().
+          */
+-        const notifyConnectionClosed = function notifyConnectionClosed(status) {
++        const notifyConnectionClosed = function notifyConnectionClosed(status, notification) {
++
++            if (!isCurrentNotification(notification))
++                return;
+ 
+             // Re-authenticate to verify auth status at end of connection
+             authenticationService.updateCurrentToken($location.search())
+@@ -170,7 +164,8 @@
+ 
+             // Show the requested status once the authentication check has finished
+             ['finally'](function authenticationCheckComplete() {
+-                $scope.status = status;
++                if (isCurrentNotification(notification))
++                    $scope.status = status;
+             });
+ 
+         };
+@@ -184,6 +179,8 @@
+          */
+         const notifyConnectionState = function notifyConnectionState(connectionState) {
+ 
++            notificationGeneration++;
++
+             // Hide any existing status
+             $scope.status = false;
+ 
+@@ -191,12 +188,19 @@
+             if (!connectionState)
+                 return;
+ 
++            const notification = {
++                generation      : notificationGeneration,
++                client          : $scope.client,
++                connectionState : connectionState,
++                statusCode      : $scope.client.clientState.statusCode
++            };
++
              // Build array of available actions
              let actions;
              if (NAVIGATE_HOME_ACTION)
 -                actions = [ NAVIGATE_HOME_ACTION, RECONNECT_ACTION, LOGOUT_ACTION ];
-+                actions = [ NAVIGATE_HOME_ACTION, REFRESH_PAGE_ACTION, LOGOUT_ACTION ];
++                actions = [ NAVIGATE_HOME_ACTION, RECONNECT_ACTION, REFRESH_PAGE_ACTION, LOGOUT_ACTION ];
              else
 -                actions = [ RECONNECT_ACTION, LOGOUT_ACTION ];
-+                actions = [ REFRESH_PAGE_ACTION, LOGOUT_ACTION ];
++                actions = [ RECONNECT_ACTION, REFRESH_PAGE_ACTION, LOGOUT_ACTION ];
  
              // Get any associated status code
              const status = $scope.client.clientState.statusCode;
-@@ -209,7 +210,8 @@ angular.module('client').directive('guacClientNotification', [function guacClien
+@@ -209,7 +213,8 @@
                      title: "CLIENT.DIALOG_HEADER_CONNECTING",
                      text: {
                          key : "CLIENT.TEXT_CLIENT_STATUS_" + connectionState.toUpperCase()
@@ -530,30 +587,76 @@ diff --git a/guacamole/src/main/frontend/src/app/client/directives/guacClientNot
                  };
              }
  
-@@ -222,7 +224,11 @@ angular.module('client').directive('guacClientNotification', [function guacClien
+@@ -220,9 +225,6 @@
+                 const errorPrefix = "CLIENT.ERROR_CLIENT_";
+                 const errorId = errorPrefix + status.toString(16).toUpperCase();
                  const defaultErrorId = errorPrefix + "DEFAULT";
- 
-                 // Determine whether the reconnect countdown applies
+-
+-                // Determine whether the reconnect countdown applies
 -                const countdown = (status in CLIENT_AUTO_RECONNECT) ? RECONNECT_COUNTDOWN : null;
-+                // Downstream modification: automatic full-page refresh is
-+                // opt-in and bounded across reloads. The manual action remains.
-+                const countdown = preferenceService.preferences.automaticRefresh
-+                    && preferenceService.canAutomaticallyRefresh()
-+                    && (status in CLIENT_AUTO_REFRESH) ? REFRESH_PAGE_COUNTDOWN : null;
  
                  // Use the guacTranslate service to determine if there is a translation for
                  // this error code; if not, use the default
-@@ -251,7 +257,9 @@ angular.module('client').directive('guacClientNotification', [function guacClien
+@@ -235,9 +237,8 @@
+                         text      : {
+                             key : translationResult.id
+                         },
+-                        countdown : countdown,
+                         actions   : actions
+-                    })
++                    }, notification)
+                 );
+ 
+             }
+@@ -249,9 +250,6 @@
+                 const errorPrefix = "CLIENT.ERROR_TUNNEL_";
+                 const errorId = errorPrefix + status.toString(16).toUpperCase();
                  const defaultErrorId = errorPrefix + "DEFAULT";
- 
-                 // Determine whether the reconnect countdown applies
+-
+-                // Determine whether the reconnect countdown applies
 -                const countdown = (status in TUNNEL_AUTO_RECONNECT) ? RECONNECT_COUNTDOWN : null;
-+                const countdown = preferenceService.preferences.automaticRefresh
-+                    && preferenceService.canAutomaticallyRefresh()
-+                    && (status in TUNNEL_AUTO_REFRESH) ? REFRESH_PAGE_COUNTDOWN : null;
  
                  // Use the guacTranslate service to determine if there is a translation for
                  // this error code; if not, use the default
+@@ -264,9 +262,8 @@
+                         text      : {
+                             key : translationResult.id
+                         },
+-                        countdown : countdown,
+                         actions   : actions
+-                    })
++                    }, notification)
+                 );
+ 
+             }
+@@ -279,7 +276,7 @@
+                         key : "CLIENT.TEXT_CLIENT_STATUS_" + connectionState.toUpperCase()
+                     },
+                     actions : actions
+-                });
++                }, notification);
+             }
+ 
+             // Hide status for all other states
+@@ -300,6 +297,8 @@
+          *     parameter and each value is the current value entered by the user.
+          */
+         const notifyParametersRequired = function notifyParametersRequired(requiredParameters) {
++
++            notificationGeneration++;
+ 
+             /**
+              * Action which submits the current set of parameter values, requesting
+@@ -369,7 +368,8 @@
+             'client.clientState.connectionState',
+             'client.requiredParameters',
+             'client.protocol',
+-            'client.forms'
++            'client.forms',
++            'client.clientState.statusCode'
+         ], function clientStateChanged(newValues) {
+ 
+             const connectionState = newValues[0];
 diff --git a/guacamole/src/main/frontend/src/app/client/directives/guacTiledClients.js b/guacamole/src/main/frontend/src/app/client/directives/guacTiledClients.js
 --- a/guacamole/src/main/frontend/src/app/client/directives/guacTiledClients.js
 +++ b/guacamole/src/main/frontend/src/app/client/directives/guacTiledClients.js
@@ -602,7 +705,7 @@ diff --git a/guacamole/src/main/frontend/src/app/client/styles/connection-warnin
 diff --git a/guacamole/src/main/frontend/src/app/client/templates/client.html b/guacamole/src/main/frontend/src/app/client/templates/client.html
 --- a/guacamole/src/main/frontend/src/app/client/templates/client.html
 +++ b/guacamole/src/main/frontend/src/app/client/templates/client.html
-@@ -41,8 +41,32 @@
+@@ -41,8 +41,27 @@
      </div>
  
      <!-- Connection stability warning -->
@@ -613,12 +716,7 @@ diff --git a/guacamole/src/main/frontend/src/app/client/templates/client.html b/
 +        <div class="message" ng-if="isConnectionUnstable()">
 +            {{'CLIENT.TEXT_CLIENT_STATUS_UNSTABLE' | translate}}
 +        </div>
-+        <div class="message"
-+             ng-if="isConnectionUnstable() && isAutomaticRefreshPending()">
-+            {{'CLIENT.TEXT_CLIENT_STATUS_RECOVERED_REFRESHING' | translate}}
-+        </div>
-+        <div class="message"
-+             ng-if="!isConnectionUnstable() && isAutomaticRefreshPending()">
++        <div class="message" ng-if="isAutomaticRefreshPending()">
 +            {{'CLIENT.TEXT_CLIENT_STATUS_RECOVERED_REFRESHING' | translate}}
 +        </div>
 +        <div class="message"
@@ -637,7 +735,7 @@ diff --git a/guacamole/src/main/frontend/src/app/client/templates/client.html b/
      </div>
      
      <!-- Menu -->
-@@ -128,11 +152,40 @@
+@@ -128,11 +147,40 @@
                                 model-only="true"></guac-form>
                  </div>
  
@@ -947,7 +1045,7 @@ diff --git a/guacamole/src/main/frontend/src/app/client/types/ManagedClient.js b
                  ManagedClientState.setConnectionState(managedClient.clientState,
                      ManagedClientState.ConnectionState.TUNNEL_ERROR,
                      status.code);
-@@ -410,28 +636,36 @@ angular.module('client').factory('ManagedClient', ['$rootScope', '$injector',
+@@ -410,28 +636,38 @@ angular.module('client').factory('ManagedClient', ['$rootScope', '$injector',
  
          // Update connection state as tunnel state changes
          tunnel.onstatechange = function tunnelStateChanged(state) {
@@ -969,6 +1067,8 @@ diff --git a/guacamole/src/main/frontend/src/app/client/types/ManagedClient.js b
                      case Guacamole.Tunnel.State.OPEN:
 -                        ManagedClientState.setTunnelUnstable(managedClient.clientState, false);
 +                        endUnstableWarning();
++                        if (!managedClient.controlUnresponsive)
++                            managedClient.reconnectSuggested = false;
                          break;
  
                      // Connection is established but misbehaving
@@ -986,7 +1086,7 @@ diff --git a/guacamole/src/main/frontend/src/app/client/types/ManagedClient.js b
                          ManagedClientState.setConnectionState(managedClient.clientState,
                              ManagedClientState.ConnectionState.DISCONNECTED);
                          break;
-@@ -538,17 +772,36 @@ angular.module('client').factory('ManagedClient', ['$rootScope', '$injector',
+@@ -538,17 +774,36 @@ angular.module('client').factory('ManagedClient', ['$rootScope', '$injector',
              });
          };
  
@@ -1034,7 +1134,7 @@ diff --git a/guacamole/src/main/frontend/src/app/client/types/ManagedClient.js b
              }
  
          };
-@@ -958,6 +1211,24 @@ angular.module('client').factory('ManagedClient', ['$rootScope', '$injector',
+@@ -958,6 +1213,24 @@ angular.module('client').factory('ManagedClient', ['$rootScope', '$injector',
          return !!(client && client.uploads && client.uploads.length);
      };
  
@@ -1918,7 +2018,7 @@ diff --git a/guacamole/src/main/frontend/src/translations/en.json b/guacamole/sr
          "SECTION_HEADER_DEVICES"         : "Devices",
          "SECTION_HEADER_DISPLAY"         : "Display",
          "SECTION_HEADER_FILE_TRANSFERS"  : "File Transfers",
-@@ -164,10 +173,13 @@
+@@ -164,10 +173,12 @@
          "TEXT_CLIENT_STATUS_CONNECTING"   : "Connecting to Guacamole...",
          "TEXT_CLIENT_STATUS_DISCONNECTED" : "You have been disconnected.",
          "TEXT_CLIENT_STATUS_UNSTABLE"     : "The network connection to the Guacamole server appears unstable.",
@@ -1928,11 +2028,10 @@ diff --git a/guacamole/src/main/frontend/src/translations/en.json b/guacamole/sr
          "TEXT_USER_JOINED"                : "{USERNAME} has joined the connection.",
          "TEXT_USER_LEFT"                  : "{USERNAME} has left the connection.",
          "TEXT_RECONNECT_COUNTDOWN"        : "Reconnecting in {REMAINING} {REMAINING, plural, one{second} other{seconds}}...",
-+        "TEXT_REFRESH_PAGE_COUNTDOWN"     : "Refreshing this page in {REMAINING} {REMAINING, plural, one{second} other{seconds}}...",
          "TEXT_FILE_TRANSFER_PROGRESS"     : "{PROGRESS} {UNIT, select, b{B} kb{KB} mb{MB} gb{GB} other{}}",
  
          "URL_OSK_LAYOUT" : "layouts/en-us-qwerty.json"
-@@ -1077,6 +1089,7 @@
+@@ -1077,6 +1088,7 @@
          "ERROR_PASSWORD_MISMATCH" : "@:APP.ERROR_PASSWORD_MISMATCH",
  
          "FIELD_HEADER_LANGUAGE"                  : "Display language:",
@@ -1940,7 +2039,7 @@ diff --git a/guacamole/src/main/frontend/src/translations/en.json b/guacamole/sr
          "FIELD_HEADER_NUMBER_RECENT_CONNECTIONS" : "Number of Recent Connections to show:",
          "FIELD_HEADER_PASSWORD"                  : "Password:",
          "FIELD_HEADER_PASSWORD_OLD"              : "Current Password:",
-@@ -1087,6 +1100,7 @@
+@@ -1087,6 +1099,7 @@
          "FIELD_HEADER_USERNAME"                  : "Username:",
          
          "HELP_APPEARANCE"           : "Here you can enable or disable whether the \"Recent Connections\" section is shown on the home screen, and adjust the number of recent connections included.",
@@ -1948,7 +2047,7 @@ diff --git a/guacamole/src/main/frontend/src/translations/en.json b/guacamole/sr
          "HELP_DEFAULT_INPUT_METHOD" : "The default input method determines how keyboard events are received by Guacamole. Changing this setting may be necessary when using a mobile device, or when typing through an IME. This setting can be overridden on a per-connection basis within the Guacamole menu.",
          "HELP_DEFAULT_MOUSE_MODE"   : "The default mouse emulation mode determines how the remote mouse will behave in new connections with respect to touches. This setting can be overridden on a per-connection basis within the Guacamole menu.",
          "HELP_INPUT_METHOD_NONE"    : "@:CLIENT.HELP_INPUT_METHOD_NONE",
-@@ -1105,6 +1119,7 @@
+@@ -1105,6 +1118,7 @@
          "NAME_INPUT_METHOD_TEXT" : "@:CLIENT.NAME_INPUT_METHOD_TEXT",
  
          "SECTION_HEADER_APPEARANCE"           : "Appearance",
@@ -1996,7 +2095,7 @@ diff --git a/guacamole/src/main/frontend/src/translations/zh.json b/guacamole/sr
          "SECTION_HEADER_DEVICES"         : "设备",
          "SECTION_HEADER_DISPLAY"         : "显示",
          "SECTION_HEADER_FILE_TRANSFERS"  : "文件传输",
-@@ -160,10 +169,13 @@
+@@ -160,10 +169,12 @@
          "TEXT_CLIENT_STATUS_CONNECTING"   : "正在连接 Guacamole...",
          "TEXT_CLIENT_STATUS_DISCONNECTED" : "您的连接已断开。",
          "TEXT_CLIENT_STATUS_UNSTABLE"     : "到 Guacamole 服务器的网络连接似乎不太稳定。",
@@ -2006,11 +2105,10 @@ diff --git a/guacamole/src/main/frontend/src/translations/zh.json b/guacamole/sr
          "TEXT_USER_JOINED"                : "用户 {USERNAME} 已加入连接。",
          "TEXT_USER_LEFT"                  : "用户 {USERNAME} 断开了连接。",
          "TEXT_RECONNECT_COUNTDOWN"        : "在 {REMAINING} 秒后重连...",
-+        "TEXT_REFRESH_PAGE_COUNTDOWN"     : "将在 {REMAINING} 秒后刷新整个页面...",
          "TEXT_FILE_TRANSFER_PROGRESS"     : "{PROGRESS} {UNIT, select, b{B} kb{KB} mb{MB} gb{GB} other{}}",
  
          "URL_OSK_LAYOUT" : "layouts/en-us-qwerty.json"
-@@ -1011,6 +1023,7 @@
+@@ -1011,6 +1022,7 @@
          "ERROR_PASSWORD_MISMATCH" : "@:APP.ERROR_PASSWORD_MISMATCH",
  
          "FIELD_HEADER_LANGUAGE"           : "界面语言：",
@@ -2018,7 +2116,7 @@ diff --git a/guacamole/src/main/frontend/src/translations/zh.json b/guacamole/sr
          "FIELD_HEADER_PASSWORD"           : "密码：",
          "FIELD_HEADER_PASSWORD_OLD"       : "当前密码：",
          "FIELD_HEADER_PASSWORD_NEW"       : "新密码：",
-@@ -1018,6 +1031,7 @@
+@@ -1018,6 +1030,7 @@
          "FIELD_HEADER_TIMEZONE"           : "时区：",
          "FIELD_HEADER_USERNAME"           : "用户名：",
          
@@ -2026,7 +2124,7 @@ diff --git a/guacamole/src/main/frontend/src/translations/zh.json b/guacamole/sr
          "HELP_DEFAULT_INPUT_METHOD" : "默认输入法决定了 Guacamole 如何接收键盘事件。当使用移动设备或使用 IME 输入时，有可能需要更改设置。本设置可在 Guacamole 菜单内被单个连接的设定覆盖。",
          "HELP_DEFAULT_MOUSE_MODE"   : "默认鼠标模拟方式决定了新连接内的远程鼠标如何响应屏幕触控。本设置可在 Guacamole 菜单内被单个连接的设定覆盖。",
          "HELP_INPUT_METHOD_NONE"    : "@:CLIENT.HELP_INPUT_METHOD_NONE",
-@@ -1036,6 +1050,7 @@
+@@ -1036,6 +1049,7 @@
          "NAME_INPUT_METHOD_TEXT" : "@:CLIENT.NAME_INPUT_METHOD_TEXT",
  
          "SECTION_HEADER_DEFAULT_INPUT_METHOD" : "缺省输入法",

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0-recovery7 (unreleased)
+
+- Restore reconnecting only the affected client as the primary terminal-error action; retain full-page refresh as an explicit fallback.
+- Ignore delayed error translations and authentication callbacks after recovery, client replacement, parameter prompts, or view destruction, so stale dialogs cannot block keyboard input.
+- Clear network recovery suggestions when the tunnel reopens, cancelling unnecessary pending automatic page refreshes while preserving separately detected control stalls.
+- Remove the terminal dialog's duplicate full-page refresh countdown, unused countdown translations, and duplicate warning markup.
+- Add runtime regression coverage against the actual patched notification controller and tunnel state handler.
+
 ## 1.6.0-recovery6
 
 - Revalidate the current document with `Cache-Control: no-cache` before every manual or automatic full-page refresh, then force reload exactly once.

@@ -267,7 +267,8 @@ class PageRefreshState:
             self.warning_visible = False
             self.warning_due = None
             if state == "open":
-                self.queue_auto_refresh()
+                self.reconnect_suggested = False
+                self.auto_refresh_due = None
                 if self.auto_refresh_attempts:
                     self.attempt_reset_due = self.now + self.AUTO_REFRESH_RESET_DELAY
 
@@ -644,10 +645,10 @@ def main() -> None:
     assert sustained_stall.reconnect_suggested is True
     sustained_stall.set_tunnel_state("open")
     assert sustained_stall.warning_visible is False
-    assert sustained_stall.reconnect_suggested is True
-    assert sustained_stall.recovery_available() is True
+    assert sustained_stall.reconnect_suggested is False
+    assert sustained_stall.recovery_available() is False
     sustained_stall.set_tunnel_state("disconnected")
-    assert sustained_stall.recovery_available() is True
+    assert sustained_stall.recovery_available() is False
     sustained_stall.dismiss_recovery()
     assert sustained_stall.reconnect_suggested is False
 
@@ -687,6 +688,16 @@ def main() -> None:
     assert persistent_stall.auto_refresh_due is not None
     persistent_stall.advance(PageRefreshState.AUTO_REFRESH_DELAY)
     assert persistent_stall.page_refreshes == 1
+
+    # Network recovery clears its suggestion and cancels an unnecessary reload.
+    recovered_stall = PageRefreshState(automatic_refresh=True)
+    recovered_stall.set_tunnel_state("unstable")
+    recovered_stall.advance(PageRefreshState.WARNING_DELAY)
+    assert recovered_stall.auto_refresh_due is not None
+    recovered_stall.set_tunnel_state("open")
+    recovered_stall.advance(PageRefreshState.AUTO_REFRESH_DELAY)
+    assert recovered_stall.page_refreshes == 0
+    assert recovered_stall.reconnect_suggested is False
 
     # A confirmed tunnel failure that closes while recovery is pending retains
     # the pending full-page refresh.
@@ -803,7 +814,6 @@ def main() -> None:
     auto_recovery = PageRefreshState(automatic_refresh=True)
     auto_recovery.set_tunnel_state("unstable")
     auto_recovery.advance(PageRefreshState.WARNING_DELAY)
-    auto_recovery.set_tunnel_state("open")
     auto_recovery.advance(PageRefreshState.AUTO_REFRESH_DELAY - 1)
     assert auto_recovery.page_refreshes == 0
     auto_recovery.advance(1)
@@ -815,19 +825,17 @@ def main() -> None:
     # remains manual instead of entering a full-page refresh loop.
     auto_recovery.set_tunnel_state("unstable")
     auto_recovery.advance(PageRefreshState.WARNING_DELAY)
-    auto_recovery.set_tunnel_state("open")
     auto_recovery.advance(PageRefreshState.AUTO_REFRESH_DELAY * 2)
     assert auto_recovery.page_refreshes == 2
     assert auto_recovery.auto_refresh_attempts == 2
     auto_recovery.set_tunnel_state("unstable")
     auto_recovery.advance(PageRefreshState.WARNING_DELAY)
-    auto_recovery.set_tunnel_state("open")
     assert auto_recovery.auto_refresh_due is None
     auto_recovery.advance(PageRefreshState.AUTO_REFRESH_DELAY * 4)
     assert auto_recovery.page_refreshes == 2
 
     # A continuous stable minute resets the retry budget for a future event.
-    auto_recovery.dismiss_recovery()
+    auto_recovery.set_tunnel_state("open")
     auto_recovery.advance(PageRefreshState.AUTO_REFRESH_RESET_DELAY)
     assert auto_recovery.auto_refresh_attempts == 0
 
@@ -836,7 +844,6 @@ def main() -> None:
     transfer_guard = PageRefreshState(automatic_refresh=True)
     transfer_guard.set_tunnel_state("unstable")
     transfer_guard.advance(PageRefreshState.WARNING_DELAY)
-    transfer_guard.set_tunnel_state("open")
     transfer_guard.set_active_transfer(True)
     transfer_guard.advance(PageRefreshState.AUTO_REFRESH_DELAY * 2)
     assert transfer_guard.page_refreshes == 0

@@ -1,11 +1,12 @@
 name: Build and publish Guacamole recovery image
-run-name: Publish recovery6 from ${{ github.ref_name }} @ ${{ github.sha }}
+run-name: Publish recovery7 from ${{ github.ref_name }} @ ${{ github.sha }}
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+      - codex/build-recovery7-20261014
     paths:
       - build.sh
       - patches/**
@@ -24,11 +25,11 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   RELEASE_TAG: 1.6.0
-  PACKAGE_TAG: 1.6.0-recovery6
+  PACKAGE_TAG: 1.6.0-recovery7
 
 jobs:
   build-and-publish:
-    name: Build and publish recovery6
+    name: Build and publish recovery7
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -61,12 +62,19 @@ jobs:
         shell: bash
         run: |
           source_image="${PUBLISH_IMAGE}:${PACKAGE_TAG}"
+          publish_tags=("${PACKAGE_TAG}" "sha-${SHORT_SHA}")
 
-          for tag in "${PACKAGE_TAG}" "${RELEASE_TAG}" main "sha-${SHORT_SHA}"; do
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            publish_tags+=("${RELEASE_TAG}" main)
+          fi
+
+          for tag in "${publish_tags[@]}"; do
             target_image="${PUBLISH_IMAGE}:${tag}"
             docker tag "$source_image" "$target_image"
             docker push "$target_image"
           done
+
+          echo "PUBLISHED_TAGS=${publish_tags[*]}" >> "$GITHUB_ENV"
 
       - name: Write build summary
         shell: bash
@@ -74,10 +82,9 @@ jobs:
           {
             echo "### Published Guacamole recovery image"
             echo
-            echo "- \`${PUBLISH_IMAGE}:${PACKAGE_TAG}\`"
-            echo "- \`${PUBLISH_IMAGE}:${RELEASE_TAG}\`"
-            echo "- \`${PUBLISH_IMAGE}:main\`"
-            echo "- \`${PUBLISH_IMAGE}:sha-${SHORT_SHA}\`"
+            for tag in ${PUBLISHED_TAGS}; do
+              echo "- \`${PUBLISH_IMAGE}:${tag}\`"
+            done
             echo
             echo "Source commit: \`${GITHUB_SHA}\`"
           } >> "$GITHUB_STEP_SUMMARY"

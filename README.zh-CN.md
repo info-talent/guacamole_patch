@@ -8,10 +8,12 @@
 
 ## 快速部署
 
-拉取已经构建好的镜像：
+当前源码为尚未发布的 `recovery7` 候选版，下列镜像标签需先通过构建工作流发布。已发布的 `recovery6` 不包含本次中央提示优化。
+
+发布后拉取候选镜像：
 
 ```bash
-docker pull ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6
+docker pull ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7
 ```
 
 在 Docker Compose 中使用：
@@ -19,7 +21,7 @@ docker pull ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6
 ```yaml
 services:
   guacamole:
-    image: ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6
+    image: ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7
 ```
 
 只更新 Guacamole Web 容器：
@@ -35,8 +37,8 @@ Docker 会复用没有变化的镜像层，后续拉取通常只下载发生变�
 
 ## 镜像标签
 
-- `1.6.0-recovery6`：本补丁包对应的当前具名恢复版本。
-- `1.6.0-recovery5`：保留用于回滚的上一恢复版本。
+- `1.6.0-recovery7`：当前源码对应的尚未发布候选版本。
+- `1.6.0-recovery6`：保留用于回滚的上一恢复版本。
 - `1.6.0`：当前滚动发布镜像，每次正式构建都会更新这个标签。
 - `main`：由 `main` 分支最新代码构建。
 - `sha-<commit>`：对应特定源码提交的固定标签，适合精确部署和回滚。
@@ -71,6 +73,10 @@ RDP 键盘布局：en-us-qwerty
 
 ### 短暂网络提示
 
+中央断线窗口优先提供“重新连接”，只重建当前连接；“刷新页面”保留为手动备用入口。错误翻译或登录状态检查完成时会重新核对连接、状态和视图，连接已恢复时不再弹出旧错误窗口。中央窗口不再单独安排整页刷新倒计时，自动刷新统一由连接恢复逻辑协调。负载均衡连接组在重新连接时仍可能选择不同后端，需要固定主机时请使用具体连接。
+
+隧道恢复正常后会清除网络异常留下的刷新建议并取消待执行刷新；独立检测到的控制无响应仍保留提示。真实断线仍会显示错误，需要检查同一时刻的 Guacamole、`guacd` 和代理日志定位原因。
+
 Guacamole 原本在大约 1.5 秒未收到隧道数据后就把连接标记为不稳定。补丁会额外确认 3 秒，只有页面可见且异常持续存在时才显示提示；页面隐藏期间不显示，返回页面后重新开始确认。
 
 底层不稳定检测和 15 秒接收超时保持不变。真实且持续的网络或服务器故障仍会正常提示并断开连接。
@@ -81,7 +87,7 @@ Guacamole 原本在大约 1.5 秒未收到隧道数据后就把连接标记为�
 
 整页刷新会重新加载登录态、路由和所有平铺连接；负载均衡连接组可能重新选择后端，RDP 也可能打开不同的远程会话。若必须保持同一台主机，请保持开关关闭并优先使用具体连接。
 
-recovery6 在刷新前会使用 `Cache-Control: no-cache` 重新验证当前文档，清除 Guacamole 的旧构建刷新锁，并确保请求成功、失败或超时后只重载一次。连接侧边菜单始终提供“刷新页面”；等待远程首帧时的状态窗口也提供相同操作。
+recovery7 在刷新前会使用 `Cache-Control: no-cache` 重新验证当前文档，清除 Guacamole 的旧构建刷新锁，并确保请求成功、失败或超时后只重载一次。连接侧边菜单始终提供“刷新页面”；等待远程首帧时的状态窗口也提供相同操作。
 
 ### 登录后远程画布黑屏
 
@@ -95,13 +101,18 @@ recovery6 在刷新前会使用 `Cache-Control: no-cache` 重新验证当前文�
 
 远程 Windows 中打开 Chrome、Edge、视频、动画或滚动复杂网页会产生大量 RDP 画面更新。补丁可以识别严重积压并恢复连接，但不能消除远端主机、网络带宽或 `guacd` 编码能力不足。建议在 Guacamole 的具体 RDP 连接中使用：
 
-recovery6 保留 recovery4 的画面热路径优化：不再从实时同步回调中每 5 秒展开完整画布并生成缩略图；逐帧显示统计默认关闭，仅在用户点击后临时启用 1 秒窗口。缩略图仍会在首次连接和断开时保存。
+recovery7 保留 recovery4 的画面热路径优化：不再从实时同步回调中每 5 秒展开完整画布并生成缩略图；逐帧显示统计默认关闭，仅在用户点击后临时启用 1 秒窗口。缩略图仍会在首次连接和断开时保存。
 
-- 颜色深度设为 `16`；
+- 确认 Web 应用和 `guacd` 使用匹配版本；Web 补丁不会自动升级 `guacd`；
+- 优先保留 GFX 默认启用状态，即不要勾选“禁用 GFX”，颜色深度先留空；Guacamole 1.6.0 的 GFX 要求 32 位色深，启用时会忽略手动指定的 `16`，不要把降低色深当成通用优化；
 - 不启用“强制无损”；
 - 不启用壁纸、主题、字体平滑、拖动时显示窗口内容、桌面合成和菜单动画；
 - 保持位图、离屏和字形缓存启用，即不要勾选对应的“禁用缓存”；
 - 首次排查时把远程分辨率降到 `1280x720` 或 `1600x900`，DPI 设为 `96`。
+
+若 mstsc 直连流畅、只有 Guacamole 在打开浏览器或滚动时卡顿，先检查 Guacamole 服务器的画面转换、传输和本机浏览器绘制：确认 `websocket-tunnel` 成功升级到 WebSocket（通常为 HTTP `101`）；若回退为 HTTP 隧道，检查反向代理是否关闭响应缓冲。卡顿时同时观察 `docker stats` 的 CPU、内存、网络流量及本机浏览器的 CPU；对比降低分辨率前后、同一网络内绕过代理前后的表现。直连和 Guacamole 的网络路径、RDP 协商可能不同，因此直连流畅仍不能单独排除 Guacamole 服务器到 Windows 的网络问题。
+
+配置依据：[RDP 性能选项](https://guacamole.apache.org/doc/1.6.0/gug/configuring-guacamole.html#performance-flags)、[反向代理与 WebSocket](https://guacamole.apache.org/doc/1.6.0/gug/reverse-proxy.html)、[GFX 色深处理源码](https://github.com/apache/guacamole-server/blob/1.6.0/src/protocols/rdp/settings.c#L1541)。
 
 ## GitHub Actions 构建
 
@@ -110,10 +121,10 @@ recovery6 保留 recovery4 的画面热路径优化：不再从实时同步回�
 构建成功会发布：
 
 ```text
-ghcr.io/trilogys/guacamole_patch:1.6.0
-ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6
-ghcr.io/trilogys/guacamole_patch:main
-ghcr.io/trilogys/guacamole_patch:sha-<commit>
+ghcr.io/info-talent/guacamole_patch:1.6.0
+ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7
+ghcr.io/info-talent/guacamole_patch:main
+ghcr.io/info-talent/guacamole_patch:sha-<commit>
 ```
 
 ## 手动构建
@@ -133,10 +144,10 @@ mktemp
 克隆并构建：
 
 ```bash
-git clone https://github.com/trilogys/guacamole_patch.git
+git clone https://github.com/info-talent/guacamole_patch.git
 cd guacamole_patch
 
-IMAGE_NAME="ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6" \
+IMAGE_NAME="ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7" \
 bash ./build.sh
 ```
 
@@ -144,7 +155,7 @@ bash ./build.sh
 
 ```bash
 MAVEN_ARGUMENTS="-T 1C -Dmaven.test.skip=true" \
-IMAGE_NAME="ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6" \
+IMAGE_NAME="ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7" \
 bash ./build.sh
 ```
 
@@ -153,14 +164,14 @@ bash ./build.sh
 ## 验证镜像
 
 ```bash
-docker image inspect ghcr.io/trilogys/guacamole_patch:1.6.0-recovery6 \
+docker image inspect ghcr.io/info-talent/guacamole_patch:1.6.0-recovery7 \
   --format '{{index .Config.Labels "io.guacamole.recovery.patch-sha256"}}'
 ```
 
 预期补丁 SHA-256：
 
 ```text
-0345d83616eefb0c23c6c8aad328739260beeb2bf0f0d645fc436d4f87f4de5f
+be142a5ede943175bfe87a23444b74ebb60969b7e388e5614e8112ea26ec5df1
 ```
 
 ## 验收测试
